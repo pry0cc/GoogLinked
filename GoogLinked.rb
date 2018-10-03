@@ -3,6 +3,16 @@
 require 'rubygems'
 require 'nokogiri'
 require 'mechanize'
+require 'optparse'
+
+class String
+	def is_upper?
+		self == self.upcase
+	end
+	def is_lower?
+		self == self.downcase
+	end
+end
 
 
 class GoogLinked
@@ -11,7 +21,6 @@ class GoogLinked
 		@agent.user_agent = "Mozilla/5.0 (Windows; U; Windows NT 6.0;en-US; rv:1.9.2 Gecko/20100115 Firefox/4.6"
 		@companyname = companyname
 		@domain = domain
-		@proxies = get_proxies()
 		@useragents = [
 			"Mozilla/5.0 (Windows; U; Windows NT 6.0;en-US; rv:1.9.2 Gecko/20100115 Firefox/3.6",
 			"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2227.0 Safari/537.36",
@@ -40,12 +49,18 @@ class GoogLinked
 		emails = []
 
 		names.each do |title|
-			tarr = title.split("-")[0].split("|")[0].split(" ")
+			tarr = title.split("-")[0].split("|")[0].split(",")[0].split(" ")
+				if tarr.length > 2
+					if tarr[2].length >= 2
+						if tarr[2][0].is_upper? and tarr[2][1].is_upper?
+							tarr.delete_at(2)
+						end
+					end
+				end
 			emails.push(tarr[0].downcase+"."+tarr[-1].downcase+"@"+@domain)
 		end
 
-		puts emails
-
+        return emails
 	end
 
 	def get_pages(init)
@@ -62,7 +77,7 @@ class GoogLinked
 		search_failed = true
 		while(search_failed) do
 			begin
-				randomize_proxy()
+				randomize_useragent()
 				results = @agent.get("https://www.google.co.uk/search?num=100&start=#{page*100}&hl=en&q=site:linkedin.com/in+#{companyname.gsub! " " "+"}").body()
 			rescue
 				search_failed = true
@@ -73,51 +88,53 @@ class GoogLinked
 		end
 	end
 
-	def randomize_proxy()
-		check_failed = true
-		proxy = []
-		while(check_failed) do
-			begin
-				Timeout::timeout(5) {
-					# puts "Trying new proxy. " + @proxies.length.to_s + " proxies left."
-					# print "+"
-					proxy = @proxies.sample
-					ua = @useragents.sample
-					@agent.set_proxy(proxy[0], proxy[1])
-					@agent.user_agent = ua
-					ip = @agent.get("http://icanhazip.com").body().chomp
-					if ip != proxy[0]
-						break
-					end
-				}
-			rescue
-				check_failed = true
-				# puts "Proxy Failed - removing from list"
-				# print "-"
-				@proxies.delete(proxy)
-			else
-				check_failed = false
-				# puts "Proxy worked!"
-			end
-		end
+	def randomize_useragent()
+		ua = @useragents.sample
+		@agent.user_agent = ua
 	end
-
-	def get_proxies()
-		results = []
-		host = "127.0.0.1"
-		ports = 5001..5045
-
-		ports.each do |port|
-			results.push([host, port])
-		end
-
-		return results
-	end
-
 end
 
 
-searcher = GoogLinked.new("Microsoft", "microsoft.com")
-searcher.run_search()
+options = {}
+optparse = OptionParser.new do|opts|
+  # Set a banner, displayed at the top
+  # of the help screen.
+  opts.banner = "Usage: optparse1.rb [options] file1 file2 ..."
+  # Define the options, and what they do
+  options[:output] = nil
+  opts.on( '-o', '--output FILE', 'Write emails to FILE' ) do|file|
+    options[:output] = file
+  end
+  opts.on('-d', '--domain DOMAIN', 'Domain to search for') do |domain|
+    options[:domain] = domain
+  end
+  opts.on('-c', '--company COMPANY NAME LLC', 'Company name to search for') do |companyname|
+    options[:companyname] = companyname
+  end
+  # This displays the help screen, all programs are
+  # assumed to have this option.
+  opts.on( '-h', '--help', 'Display this screen' ) do
+    puts opts
+    exit
+  end
+end
 
+optparse.parse!
+
+if options[:companyname] != nil and options[:domain] != nil
+  puts "[+] Beginning search..."
+  searcher = GoogLinked.new(options[:companyname], options[:domain])
+  output = searcher.run_search()
+  puts "[*] Search complete!"
+  if options[:output] != nil
+    filename = options[:output]
+    out = File.open(filename, "w")
+    output.each do |email|
+      out.puts email+"\n"
+    end
+    puts "[+] Emails for #{options[:companyname]} saved to #{filename}"
+  else
+    puts output
+  end
+end
 
